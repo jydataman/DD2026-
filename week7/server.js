@@ -1,7 +1,6 @@
-// 1. setup a node app with command: npm init
-// 2. install express with command: npm install express
-// 3. create a file named server.js and add the following code
-// 4. start the db with command: brew services start mongodb-community //mac on windows start the mongodb server with command: & "C:\Program Files\MongoDB\Server\8.2\bin\mongod.exe" --dbpath="C:\data\db"
+
+
+
 const express = require("express");
 const app = express();
 const port = 3001;
@@ -11,9 +10,23 @@ const hbs = require("express-handlebars");
 
 app.engine("handlebars", hbs.engine());
 app.set("view engine", "handlebars");
-//app.set("views", path.join(__dirname, "views"));
-// the path module is used to work with file and directory paths
+
+
 const path = require("path");
+
+// Mutler stuff
+const multer = require("multer");
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "./static/images/");
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + "-" + file.originalname);
+  },
+});
+
+const upload = multer({ storage });
 
 //setup db connection
 const mongoose = require("mongoose");
@@ -50,6 +63,7 @@ const destinationSchema = new mongoose.Schema(
     toObject: { virtuals: true },
   },
 );
+
 // See virtuals in mongoose documentation https://mongoosejs.com/docs/guide.html#virtuals
 destinationSchema.virtual("activities", {
   ref: "activities",
@@ -63,6 +77,7 @@ gallerySchema.virtual("images", {
   localField: "_id",
   foreignField: "gallery",
 });
+
 // Activities schema for things to do in each destination
 const activitySchema = new mongoose.Schema({
   name: String,
@@ -100,16 +115,18 @@ app.use(express.static(path.join(__dirname, "static")));
 app.use(express.urlencoded({ extended: true }));
 // data
 
-// 4/7 class
+
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+  res.header("Access-Control-Allow-Origin", "*"); // Allow requests from any origin. This should not be used in production without proper security measures in place.
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept",
+  );
   next();
 });
 
-
-
+//---------------------------------------------------------
 
 // generate routes
 app.get("/", async (req, res) => {
@@ -131,20 +148,22 @@ app.get("/", async (req, res) => {
 });
 
 // generate routes to populate destinations page
-app.post("/destinations", async (req, res) => {
+app.post("/api/destinations", upload.single("image"), async (req, res) => {
   // code to add a new destination to the database
-  const { page, name, description, image } = req.body;
+  const { page, name, description } = req.body;
+  const image = req.file; // Get the path of the uploaded image
   console.log(req.body);
   const newDestination = new Destination({
     page,
     name,
     description,
-    image,
+    image: image ? `/images/${image.filename}` : "/images/default.jpg", // Store the path to the image in the database
   });
   await newDestination.save();
   //res.redirect("/destinations");
   res.send("Destination added successfully");
 });
+
 // generate routes to display destinations page
 app.get("/destinations", async (req, res) => {
   // code to fetch destinations from the database and render the destinations page
@@ -155,6 +174,7 @@ app.get("/destinations", async (req, res) => {
     title: "Destinations",
   });
 });
+
 // Get a specific destination by _id
 app.get("/destinations/:id", async (req, res) => {
   const { id } = req.params;
@@ -168,6 +188,22 @@ app.get("/destinations/:id", async (req, res) => {
     title: destination.name,
     activities: destination.activities,
   });
+});
+
+// update destination
+app.put("/api/destinations/:id", upload.single("image"), async (req, res) => {
+  console.clear();
+  const { id } = req.params;
+  const { page, name, description } = req.body;
+  const image = req.file;
+
+  await Destination.findByIdAndUpdate(id, {
+    page,
+    name,
+    description,
+    image: image ? `/images/${image.filename}` : this.image,
+  });
+  res.send("Destination updated successfully");
 });
 
 // activities routes
@@ -195,6 +231,7 @@ app.post("/pages", async (req, res) => {
   await newPage.save();
   res.send("Page added successfully");
 });
+
 // Create a new gallery
 app.post("/galleries", async (req, res) => {
   const { name, description } = req.body;
@@ -205,6 +242,7 @@ app.post("/galleries", async (req, res) => {
   await newGallery.save();
   res.send("Gallery added successfully");
 });
+
 // Create a new image
 app.post("/images", async (req, res) => {
   const { url, caption, gallery } = req.body;
@@ -217,10 +255,27 @@ app.post("/images", async (req, res) => {
   res.send("Image added successfully");
 });
 
-app.get('/api/destinations', async (req, res) => {
-    const destinations = await Destination.find().lean();
-    res.json(destinations);
+//api routes for fetching data in json format for frontend to consume
+app.get("/api/destinations", async (req, res) => {
+  const destinations = await Destination.find().lean();
+  res.json(destinations);
 });
+// Get a specific destination by _id
+app.get("/api/destinations/:id", async (req, res) => {
+  const { id } = req.params;
+  const destination = await Destination.findById(id)
+    .populate("activities")
+    .lean();
+  //const activities = await Activity.find({ destination: id }).lean();
+  res.json(destination);
+});
+
+app.delete("/api/destinations/:id", async (req, res) => {
+  const { id } = req.params;
+  await Destination.findByIdAndDelete(id);
+  res.send("Destination deleted successfully");
+});
+
 
 // start the server
 app.listen(port, () => {
